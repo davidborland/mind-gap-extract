@@ -43,6 +43,7 @@ One row per paper.
 | Field | Notes |
 |---|---|
 | Year | Publication year (conference presentation year for journal-track papers, to keep it aligned with the venue-year the paper "belongs to") |
+| Venue | `IEEE VR` or `ISMAR` — which conference the paper belongs to, regardless of track |
 | Type | `Conference` or `Journal` |
 | Title | Full paper title |
 | First author | As listed on the paper |
@@ -59,7 +60,7 @@ One row per paper.
 | Mean age | As reported; **NA** if not reported |
 | Age SD | As reported; **NA** if not reported |
 
-Any field the paper does not report gets the literal string **NA** — never a blank cell and never `0` (a blank/0 is ambiguous between "not reported" and "reported as zero"). This applies to every field above except Year, Type, Title, First/Last author, and Total authors, which should always be extractable from the paper itself.
+Any field the paper does not report gets the literal string **NA** — never a blank cell and never `0` (a blank/0 is ambiguous between "not reported" and "reported as zero"). This applies to every field above except Year, Venue, Type, Title, First/Last author, and Total authors, which should always be extractable from the paper itself.
 
 ### Extraction rules / edge cases
 - **Use authors' own terminology** for gender categories rather than normalizing; keep a separate "descriptors" field to preserve nuance (some papers use "sex," some "gender," some conflate the two — note this ambiguity in a comments column if needed).
