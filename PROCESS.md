@@ -80,6 +80,30 @@ Both venues route their "journal track" through TVCG, so `Type` can't be read fr
 5. **Extract demographics** from the identified section(s) (see schema below) directly into the dataset.
 6. **Spot-check / QC** a random sample (e.g., 10%) with a second reader to check extraction accuracy, since demographic reporting is inconsistently located and phrased across papers.
 
+### Planned implementation of steps 4–6 *(proposed 2026-09-24; not started, decisions pending)*
+
+To be piloted on the 109 open-access PDFs already downloaded, then run on the rest.
+
+1. **Convert each PDF to text** (`scripts/extract_text.py` → `data/text/<article_number>.txt`) with PyMuPDF (`pip install pymupdf`), which handles IEEE's two-column layout well. No PDF text tool is installed yet.
+2. **Find the relevant passages** (`scripts/find_candidates.py`): keyword search for participant language ("participants", "recruited", "N =", "female", "male", "non-binary", "aged", "M =", "SD =", "years old", "demographic"), keeping a window of text around each hit. Papers with no hits become *candidates* for `Has user study: No`, confirmed in the next step rather than set automatically. This cuts the text per paper from ~10 pages to ~1.
+3. **Extract the details** (`scripts/extract_demographics.py`): Claude reads each paper's passages and fills in the §3 fields as structured JSON. Every value must come with the **exact quote** it came from.
+4. **Automatic checks** on every result; anything failing goes to a review list rather than into the dataset:
+   - each quote appears word-for-word in the paper's text (catches invented values)
+   - female + male + other = total
+   - minimum age ≤ mean ≤ maximum, and ages are plausible
+   - a stated total matches the per-study numbers
+5. **Pilot and quality check**: the user hand-codes ~20 open-access papers as a reference set, and the extraction instructions are adjusted until they agree. Then the 10% second-reader check (step 6 above) on the full set.
+
+**Open decision: how the extraction step runs.**
+- *(Recommended)* A script calling the Claude API: reproducible and rerunnable, with every result logged next to its quotes, which suits a methods section. Needs an Anthropic API key in `.env` and costs per paper; check current pricing before estimating.
+- Subagents in a Claude Code session: no key or separate billing, but harder to rerun identically and slower for ~2,000 papers.
+
+**Open rules, to settle before the pilot** (proposed defaults in italics). These change the numbers, so they belong in the methods:
+1. **Multiple studies in one paper**: *one row per study in a second table, plus a paper-level total that adds up studies only when the paper says the participants were different people; otherwise flagged.* This supersedes "aggregate across studies" in the extraction rules below.
+2. **Recruited vs. analyzed participants**: *record the analyzed count, with exclusions in the notes* (demographics are often reported for the recruited group; the note makes that visible).
+3. **Pilot, expert-only and crowdsourced studies**: *count all as user studies, with a column recording which kind, so they can be filtered later.*
+4. **Gender vs. sex wording**: *record the paper's own term (gender / sex / unclear) in a column*, per the terminology rule below.
+
 ## 3. Data Schema
 
 One row per paper.
