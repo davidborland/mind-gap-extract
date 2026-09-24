@@ -29,7 +29,7 @@ Both venues route their "journal track" through TVCG, so `Type` can't be read fr
 >
 > The key is stored in `.env` (as `IEEE_XPLORE_API_KEY`), which is gitignored and must never be committed.
 >
-> Claude's `Bash` tool runs on the user's own machine, so `curl` calls go out from the user's network. PDF downloads therefore work when that machine is on the campus network or VPN, since access is IP-based. WebFetch does *not* run from the user's network, so it can't be used for PDFs. The manual Xplore export/download route below remains as a fallback.
+> Claude's `Bash` tool runs on the user's own machine, so requests go out from the user's network. PDF access is IP-based: it works only from an address inside the institution's IEEE subscription. WebFetch does *not* run from the user's network, so it can't be used for PDFs. See step 3 for which networks have been tested.
 
 1. **Build the paper index per venue/year** using the IEEE Xplore Metadata API (`https://ieeexploreapi.ieee.org/api/v1/search/articles`). This happens in two parts.
 
@@ -44,13 +44,38 @@ Both venues route their "journal track" through TVCG, so `Type` can't be read fr
    | IEEE VR 2020–2026 | Main proceedings, 7 volumes | Issue 5 each year (vol. 26–32) |
    | ISMAR 2020–2025 | Main proceedings, 6 volumes | Issue 12 in 2020 (vol. 26); issue 11 in 2021–2025 (vol. 27–31) |
 
-   **1b. Fetch every paper in each volume** *(next; `scripts/fetch_metadata.py`, not yet written)*. Query each volume's filter in pages of 25 (`start_record`), drop front matter (editor's messages, keynotes, tables of contents, author indexes) by title pattern and page count, and flag borderline cases for manual review. Output: `data/index.csv`, one row per paper, with year, venue, type, title, authors in order, DOI, Xplore article number, page range and `pdf_url`. The discovery searches suggest roughly 2,500 raw records across the 26 volumes, so about 100–110 calls, which fits in one day's quota. If the cap is reached, the script resumes from its cache the next day.
+   **1b. Fetch every paper in each volume** *(done 2026-09-24, 103 API calls; `scripts/fetch_metadata.py`)*. Each volume's filter is queried in pages of 25, sorted by article number so page boundaries stay stable across runs, and the unique record count is checked against the API's reported total. The 2,320 raw records are then classified by these rules, applied in order and each checked by hand against the records it catches:
+   1. **No authors → excluded** (279): committee lists, sponsor pages, tables of contents, author indexes, award citations, keynote abstracts.
+   2. **Roman-numeral page numbers → excluded** (49): IEEE paginates front matter this way, e.g. chairs' messages and awards that list their signers as authors.
+   3. **Front-matter title pattern → excluded** (8), e.g. "Message from…", "Keynote Speaker…". If such a record is paper-length (4+ pages), it's flagged for review instead, so a real paper whose title happens to begin "Introducing…" or "Welcome…" isn't lost. Four such papers were caught this way in an earlier version of the rule.
+   4. **1–2 pages → excluded** (4): award citations and a short invited piece. The shortest real paper is 5 pages.
+
+   **Result: 1,980 papers** in `data/index.csv` (all 2,320 records with status and reason are in `data/index_all.csv`). No papers are left for review; none is missing page numbers, authors or a `pdf_url`; there are no duplicate article numbers or DOIs; paper lengths run 5–14 pages. 109 papers are open access (CC BY or `OPEN_ACCESS`), and the other 1,871 are `LOCKED`, i.e. subscription access is needed for the PDF.
+
+   | Papers | 2020 | 2021 | 2022 | 2023 | 2024 | 2025 | 2026 |
+   |---|---|---|---|---|---|---|---|
+   | IEEE VR conference | 104 | 92 | 90 | 69 | 101 | 75 | 68 |
+   | IEEE VR journal | 29 | 25 | 29 | 61 | 79 | 136 | 160 |
+   | ISMAR conference | 69 | 56 | 93 | 128 | 133 | 157 | — |
+   | ISMAR journal | 18 | 24 | 35 | 45 | 44 | 60 | — |
 
    **Completeness check:** since dblp can't be scripted (§1), compare each volume's paper count against its Xplore table-of-contents page or the conference program.
 
    *Fallback (manual)*: run a scoped search on IEEE Xplore per venue/year and use "Export Results" (CSV/BibTeX/RIS, up to 2000 records per export); share the export file for processing.
 2. **Classify Type (conference/journal)** from the volume each paper came from (conference proceedings → `Conference`; TVCG special issue → `Journal`). No per-paper disambiguation is needed.
-3. **Retrieve full text.** For each paper in the index, download the PDF from its harvested `pdf_url` with `curl` (Bash), from the campus network or VPN, into a local `pdfs/` folder named by Xplore article number. Download politely: run it serially with a delay of several seconds between requests, skip files that already exist, and log failures for retry. Bulk automated downloading from Xplore can get the whole institution's IP range blocked, so keep the rate low even though the approver sanctioned this process. For any paper Xplore can't serve, fall back to author-hosted copies or arXiv. Claude reads PDFs directly from the folder.
+3. **Retrieve full text** with `scripts/download_pdfs.py` into `data/pdfs/<article_number>.pdf`. For each paper it fetches the `stamp.jsp` page, which sets session cookies and reveals whether the network is entitled, then follows its iframe to the real PDF. A file is saved only if it starts with `%PDF`. Politeness rules, since bulk automated downloading can get the whole institution's IP range blocked: one request at a time, a random 5–10 s pause between papers, at most 300 papers per run by default, an immediate stop on a login redirect or on HTTP 403/418/429, and a stop after 5 consecutive failures. Reruns skip files already downloaded, and every attempt is logged to `data/logs/downloads.csv`. Requests use an honest identifier (`research-pdf-harvest`), not a spoofed browser. For any paper Xplore can't serve, fall back to author-hosted copies or arXiv.
+
+   **Open-access papers (109)** download from any network. **Subscription papers (1,871)** need a network that IEEE recognizes as part of UNC's subscription. As of 2026-09-24, none of the networks tried so far qualifies:
+
+   | Network | Result |
+   |---|---|
+   | Home connection, and UNC VPN `Telemed` group | Split tunnel: only UNC address ranges go through the VPN, and Xplore (served via Amazon CloudFront) doesn't. It exits via the home ISP, so Xplore redirects to login. |
+   | UNC VPN `Full-Tunnel` and `Library` groups | Sign-in succeeds, then the gateway rejects the account ("Authentication failed", plus "VPN Server internal error" for Full-Tunnel), i.e. the account isn't authorized for these groups. |
+   | RENCI server over SSH | Leaves via `AS81 MCNC`, not UNC's own address space. Xplore redirects to login (`authDecision=-203`). |
+
+   **Open:** find an entitled network. Options are a machine in UNC's own address space (e.g. a UNC Research Computing server), ITS granting access to the Library or Full-Tunnel VPN group, or the library/approver advising the intended route (possibly adding RENCI's range to the subscription).
+
+   *Implementation note:* IPv6 connections to Xplore's CDN hung from the user's network, so the script uses IPv4 only.
 4. **Screen for a user study**: search the PDF for a "Participants," "User Study," "Evaluation," or "Method(s)" section describing human subjects. Papers with no human-subject evaluation (e.g., purely technical/systems papers, simulation-only) are marked `Has user study: No` and all downstream participant fields are marked **NA**.
 5. **Extract demographics** from the identified section(s) (see schema below) directly into the dataset.
 6. **Spot-check / QC** a random sample (e.g., 10%) with a second reader to check extraction accuracy, since demographic reporting is inconsistently located and phrased across papers.
@@ -97,8 +122,8 @@ All scripts are Python 3 (standard library plus `requests`) and live in `scripts
 | `scripts/xplore.py` | Done | Shared API client. Reads the key from `.env`, caches every successful response in `data/raw/api/` (keyed by the query parameters, so a query is never paid for twice), logs call times in `data/api_calls.json`, stops at 200 calls per rolling 24 hours, and spaces calls ≥0.5 s apart. Also usable as a one-off probe: `python3 scripts/xplore.py publication_number=9583730`. |
 | `scripts/discover_volumes.py` | Done | Step 1a: lists candidate volumes per venue/year with hit counts. Only needed again when new volumes appear (e.g. ISMAR 2026). |
 | `config/volumes.json` | Done | The reviewed list of 26 in-scope volumes and their Xplore filters (committed, so the scope is auditable). |
-| `scripts/fetch_metadata.py` | To do | Step 1b: pages through each volume, filters out front matter, writes `data/index.csv`. |
-| `scripts/download_pdfs.py` | To do | Step 3: throttled, resumable PDF download from harvested `pdf_url`s, run from the campus network or VPN. Must follow the wrapper page that `stamp.jsp` returns to reach the real PDF, check each file starts with `%PDF` (to catch saved login/paywall pages), and stop after several consecutive failures. |
+| `scripts/fetch_metadata.py` | Done | Step 1b: pages through each volume, filters out front matter, writes `data/index.csv` (papers) and `data/index_all.csv` (all records with status/reason). Rerunning is free once responses are cached. |
+| `scripts/download_pdfs.py` | Done; blocked on network for subscription papers | Step 3 (see above): throttled, resumable PDF download. `--open-access-only` limits it to papers that need no subscription; `--limit N` caps a run (default 300). |
 
 `data/` (API cache, call log, index, PDFs) is gitignored: it's reproducible from the scripts, and the PDFs are copyrighted.
 
