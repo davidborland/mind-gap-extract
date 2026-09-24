@@ -1,0 +1,213 @@
+{
+ "_comment": "Xplore IDs per in-scope volume. Conference = main proceedings publication_number (adjunct/VRW excluded). Journal = TVCG special-issue is_number (VR: issue 5; ISMAR: issue 11, except 2020 issue 12), confirmed by guest-editor messages for ISMAR. ISMAR 2026 not yet published.",
+ "volumes": [
+  {
+   "venue": "IEEE VR",
+   "year": 2020,
+   "type": "Conference",
+   "filter": {
+    "publication_number": 9070012
+   }
+  },
+  {
+   "venue": "IEEE VR",
+   "year": 2020,
+   "type": "Journal",
+   "filter": {
+    "is_number": 9052073
+   }
+  },
+  {
+   "venue": "ISMAR",
+   "year": 2020,
+   "type": "Conference",
+   "filter": {
+    "publication_number": 9284405
+   }
+  },
+  {
+   "venue": "ISMAR",
+   "year": 2020,
+   "type": "Journal",
+   "filter": {
+    "is_number": 9254192
+   }
+  },
+  {
+   "venue": "IEEE VR",
+   "year": 2021,
+   "type": "Conference",
+   "filter": {
+    "publication_number": 9417603
+   }
+  },
+  {
+   "venue": "IEEE VR",
+   "year": 2021,
+   "type": "Journal",
+   "filter": {
+    "is_number": 9405517
+   }
+  },
+  {
+   "venue": "ISMAR",
+   "year": 2021,
+   "type": "Conference",
+   "filter": {
+    "publication_number": 9583730
+   }
+  },
+  {
+   "venue": "ISMAR",
+   "year": 2021,
+   "type": "Journal",
+   "filter": {
+    "is_number": 9591491
+   }
+  },
+  {
+   "venue": "IEEE VR",
+   "year": 2022,
+   "type": "Conference",
+   "filter": {
+    "publication_number": 9756663
+   }
+  },
+  {
+   "venue": "IEEE VR",
+   "year": 2022,
+   "type": "Journal",
+   "filter": {
+    "is_number": 9754282
+   }
+  },
+  {
+   "venue": "ISMAR",
+   "year": 2022,
+   "type": "Conference",
+   "filter": {
+    "publication_number": 9994794
+   }
+  },
+  {
+   "venue": "ISMAR",
+   "year": 2022,
+   "type": "Journal",
+   "filter": {
+    "is_number": 9927149
+   }
+  },
+  {
+   "venue": "IEEE VR",
+   "year": 2023,
+   "type": "Conference",
+   "filter": {
+    "publication_number": 10108080
+   }
+  },
+  {
+   "venue": "IEEE VR",
+   "year": 2023,
+   "type": "Journal",
+   "filter": {
+    "is_number": 10086958
+   }
+  },
+  {
+   "venue": "ISMAR",
+   "year": 2023,
+   "type": "Conference",
+   "filter": {
+    "publication_number": 10316350
+   }
+  },
+  {
+   "venue": "ISMAR",
+   "year": 2023,
+   "type": "Journal",
+   "filter": {
+    "is_number": 10305180
+   }
+  },
+  {
+   "venue": "IEEE VR",
+   "year": 2024,
+   "type": "Conference",
+   "filter": {
+    "publication_number": 10494036
+   }
+  },
+  {
+   "venue": "IEEE VR",
+   "year": 2024,
+   "type": "Journal",
+   "filter": {
+    "is_number": 10505866
+   }
+  },
+  {
+   "venue": "ISMAR",
+   "year": 2024,
+   "type": "Conference",
+   "filter": {
+    "publication_number": 10765357
+   }
+  },
+  {
+   "venue": "ISMAR",
+   "year": 2024,
+   "type": "Journal",
+   "filter": {
+    "is_number": 10713475
+   }
+  },
+  {
+   "venue": "IEEE VR",
+   "year": 2025,
+   "type": "Conference",
+   "filter": {
+    "publication_number": 10937339
+   }
+  },
+  {
+   "venue": "IEEE VR",
+   "year": 2025,
+   "type": "Journal",
+   "filter": {
+    "is_number": 10977053
+   }
+  },
+  {
+   "venue": "ISMAR",
+   "year": 2025,
+   "type": "Conference",
+   "filter": {
+    "publication_number": 11220258
+   }
+  },
+  {
+   "venue": "ISMAR",
+   "year": 2025,
+   "type": "Journal",
+   "filter": {
+    "is_number": 11231116
+   }
+  },
+  {
+   "venue": "IEEE VR",
+   "year": 2026,
+   "type": "Conference",
+   "filter": {
+    "publication_number": 11457486
+   }
+  },
+  {
+   "venue": "IEEE VR",
+   "year": 2026,
+   "type": "Journal",
+   "filter": {
+    "is_number": 11526953
+   }
+  }
+ ]
+}
