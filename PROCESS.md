@@ -23,15 +23,23 @@ Both venues route their "journal track" through TVCG, so `Type` must be determin
 
 ## 2. Retrieval Process
 
-> **Note on IEEE Xplore access:** Claude cannot authenticate to IEEE Xplore's normal browser/SSO-based access itself (no browser session, and web-fetch tools do not run from the user's institutional network/VPN, so IP-based access does not carry over). That access is used *manually* by the user at two points below (steps 1 and 3) — Xplore's own export/download features — with the resulting files handed to Claude to process. **Exception:** if the user's institution has a separate **Text & Data Mining (TDM) API agreement** with IEEE (distinct from the ordinary read subscription — check with the library), Claude *can* call that API directly via `curl` (Bash), using the issued API key, for both metadata and full text. That would replace the manual steps below with a scripted pull. Preferred order: TDM API (if available) > manual export/download (fallback).
+> **Note on IEEE Xplore access (confirmed):** the institution has approved IEEE Xplore API access for this project, with these terms:
+> - **200 API calls per day, max 25 records per call** (~5,000 metadata records/day).
+> - The API returns **metadata only**. Full text is obtained by harvesting each record's PDF URL (`pdf_url`) from the metadata and downloading the PDF in a separate step.
+>
+> **Status:** the user must register at [developer.ieee.org](https://developer.ieee.org/), apply for the key, then email the approver so they can approve it. Store the key in an environment variable (e.g. `IEEE_API_KEY`), never in the repo.
+>
+> Claude's `Bash` tool runs on the user's own machine, so `curl` calls go out from the user's network. PDF downloads therefore work when that machine is on the campus network or VPN, since access is IP-based. WebFetch does *not* run from the user's network, so it can't be used for PDFs. The manual Xplore export/download route below remains as a fallback.
 
 1. **Build the paper index per venue/year.** Options, in preferred order:
-   - *TDM API (if institution has an agreement)*: script queries per venue/year directly against the IEEE Xplore TDM API, returning metadata (and full text) in one pass — no manual export needed.
-   - *No login needed*: dblp listings for `conf/vr`, `conf/ismar`, and `journals/tvcg` (filtered to VR/ISMAR-track issues).
-   - *Manual institutional access*: run a scoped search on IEEE Xplore per venue/year and use "Export Results" (CSV/BibTeX/RIS, up to 2000 records per export); share the export file for processing.
-   Record: year, venue, title, author list (in order), DOI/Xplore link.
+   - *IEEE Xplore Metadata API (primary)*: script paginated queries (`max_records=25`, stepping `start_record`) per venue/year against `https://ieeexploreapi.ieee.org/api/v1/search/articles`, filtering on `publication_title` + `publication_year` (conference proceedings) and on TVCG plus the VR/ISMAR special issues (journal track). Save every raw JSON response to disk so no call is ever repeated. Keep a per-day call counter and stop at the 200-call cap, resuming the next day.
+   - *No login needed (cross-check)*: dblp listings for `conf/vr`, `conf/ismar`, and `journals/tvcg` (filtered to VR/ISMAR-track issues). These are useful for checking that the API pull is complete without spending API calls.
+   - *Manual institutional access (fallback)*: run a scoped search on IEEE Xplore per venue/year and use "Export Results" (CSV/BibTeX/RIS, up to 2000 records per export); share the export file for processing.
+   Record: year, venue, title, author list (in order), DOI, Xplore article number, `pdf_url`.
+
+   **Call budget estimate:** roughly 150–250 papers/year across both venues and tracks gives ~1,000–1,800 papers for 2020–present. That's ~40–75 calls at 25 records/call, well under one day's quota, leaving room for re-queries.
 2. **Classify Type (conference/journal)** per paper using the conference program or TVCG TOC annotation (TVCG explicitly marks papers as "presented at IEEE VR 20XX" or "presented at ISMAR 20XX").
-3. **Retrieve full text.** With TDM API access, pull full text directly via the API. Otherwise, download PDFs via IEEE Xplore (manual institutional access) into a local folder, or via author-hosted copies where Xplore access isn't available; Claude reads PDFs directly from that folder.
+3. **Retrieve full text.** For each paper in the index, download the PDF from its harvested `pdf_url` with `curl` (Bash), from the campus network or VPN, into a local `pdfs/` folder named by Xplore article number. Download politely: run it serially with a delay of several seconds between requests, skip files that already exist, and log failures for retry. Bulk automated downloading from Xplore can get the whole institution's IP range blocked, so keep the rate low even though the approver sanctioned this process. For any paper Xplore can't serve, fall back to author-hosted copies or arXiv. Claude reads PDFs directly from the folder.
 4. **Screen for a user study**: search the PDF for a "Participants," "User Study," "Evaluation," or "Method(s)" section describing human subjects. Papers with no human-subject evaluation (e.g., purely technical/systems papers, simulation-only) are marked `Has user study: No` and all downstream participant fields are marked **NA**.
 5. **Extract demographics** from the identified section(s) (see schema below) directly into the dataset.
 6. **Spot-check / QC** a random sample (e.g., 10%) with a second reader to check extraction accuracy, since demographic reporting is inconsistently located and phrased across papers.
@@ -71,14 +79,14 @@ Any field the paper does not report gets the literal string **NA** — never a b
 
 ## 4. Suggested Tooling
 
-- **Check for TDM API access first** — ask the library/research-support office whether the institution has a Text & Data Mining agreement with IEEE (separate from the regular read/download subscription). If so, this is the preferred path: a scripted `curl`-based (Bash) pull against the TDM API, using the issued key, for both metadata and full text — replacing the manual export/download steps and the ad hoc dblp cross-check.
-- Note: the ordinary free IEEE Xplore Metadata API (`developer.ieee.org`) is a separate, individual-account API key and only returns metadata (title, authors, abstract, DOI) — no full text — so it doesn't help with the demographics extraction itself, only the bibliographic index.
-- If no TDM access: script the dblp → paper-index step (dblp provides XML/JSON exports per venue), and use the manual Xplore export/download route in §2 for full text.
+- **IEEE Xplore Metadata API** (key from `developer.ieee.org`, institutionally approved; 200 calls/day × 25 records): a `curl`/Python script builds the paper index and harvests `pdf_url`s, caching raw JSON responses and enforcing the daily cap.
+- **PDF harvester**: a throttled, resumable download script over the harvested `pdf_url`s (see §2 step 3), run from the campus network or VPN.
+- **dblp** (XML/JSON exports per venue) as a free completeness cross-check against the API-built index.
 - PDF text extraction (e.g., `pdftotext`, or a PDF-parsing library) to pull candidate "Participants" sections automatically as a first pass, followed by manual/LLM-assisted verification given how inconsistently this information is reported.
 - Store the working dataset as CSV/spreadsheet (one row per paper) for downstream analysis (e.g., trends over time in gender balance, reporting completeness).
 
 ## 5. Known Limitations
 
-- Scoped to 2020–present, so full-text access should be uniformly available via IEEE Xplore given institutional access, once PDFs are manually downloaded (see §2 note); digitization gaps are not expected to be an issue at this recency.
+- Scoped to 2020–present, so full-text access should be uniformly available via IEEE Xplore given institutional access, via the harvested `pdf_url`s (see §2 step 3); digitization gaps are not expected to be an issue at this recency.
 - Demographic reporting norms still vary within 2020–present (non-binary/other categories are more common than in earlier years but still inconsistently reported), so absence of an "other" count doesn't necessarily mean an all-binary participant pool.
 - Determining "last author" as the senior/PI author is a convention, not a guarantee — some subfields/labs order authors alphabetically or by contribution instead.
