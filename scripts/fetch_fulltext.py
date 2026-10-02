@@ -137,8 +137,9 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--limit", type=int, default=None,
                     help="max papers to attempt this run (default: until budget runs out)")
-    ap.add_argument("--delay", type=float, default=2.0,
-                    help="minimum seconds between API calls (default 2)")
+    # At 2 s apart, IEEE answered "Over Qps" on 2 of 6 calls (2026-10-02).
+    ap.add_argument("--delay", type=float, default=10.0,
+                    help="minimum seconds between API calls (default 10)")
     args = ap.parse_args()
 
     RUN_LOG.parent.mkdir(parents=True, exist_ok=True)
@@ -150,10 +151,11 @@ def main():
     # Open-access papers first: whether the Full-Text API serves them (CC BY
     # records say "IEEE is not the copyright holder") is the untested part.
     todo.sort(key=lambda p: p["access_type"] == "LOCKED")
+    remaining = len(todo)
     if args.limit is not None:
         todo = todo[:args.limit]
-    say(f"{len(papers) - len(todo)} of {len(papers)} already fetched; attempting {len(todo)}; "
-        f"budget remaining (24h): {xplore.remaining_budget()}")
+    say(f"{len(papers) - remaining} of {len(papers)} already fetched; attempting up to "
+        f"{len(todo)} of {remaining} remaining; budget remaining (24h): {xplore.remaining_budget()}")
 
     ok = failed = consecutive = 0
     stopped = False
