@@ -14,7 +14,7 @@ budget in xplore.py, so a run stops by itself when the budget is used up;
 rerun the next day to resume. Existing files are skipped.
 
 Stops on: budget exhausted, 5 consecutive failures, or repeated "Over Qps"
-throttling or server errors (each retried 3 times, 60 s apart). Every attempt
+throttling or server errors (retried after 1, 2, 4 and 8 minutes). Every attempt
 is logged to data/logs/fulltext.csv, and console output is copied to
 data/logs/fulltext_run.log.
 
@@ -42,8 +42,9 @@ RUN_LOG = ROOT / "data" / "logs" / "fulltext_run.log"
 
 API = "https://ieeexploreapi.ieee.org/api/v1"
 TOKEN_LIFETIME = 10 * 60     # cltoken lasts 15 min; IEEE's SDK refreshes at 10
-QPS_WAIT = 60                # seconds to back off after "Over Qps" or a 5xx
-QPS_RETRIES = 3
+# Back-off after "Over Qps" or a 5xx, doubling each time. "Service Over Qps"
+# came every 10-15 papers even at 10 s spacing, once for 3+ min (2026-10-02).
+QPS_WAITS = (60, 120, 240, 480)
 MAX_CONSECUTIVE_FAILURES = 5
 
 
@@ -67,7 +68,7 @@ class Client:
             data = {**data, "apikey": self.key}
         else:
             params = {**params, "apikey": self.key}
-        for attempt in range(QPS_RETRIES + 1):
+        for attempt in range(len(QPS_WAITS) + 1):
             if xplore.remaining_budget() <= 0:
                 raise Stop("24-hour API call budget used up; rerun later")
             wait = self.delay - (time.time() - self.last_call)
@@ -82,10 +83,10 @@ class Client:
                 problem = f"server error (HTTP {r.status_code})"
             else:
                 return r
-            if attempt < QPS_RETRIES:
-                say(f"  {problem}; waiting {QPS_WAIT} s")
-                time.sleep(QPS_WAIT)
-        raise Stop(f"still {problem} after {QPS_RETRIES} retries")
+            if attempt < len(QPS_WAITS):
+                say(f"  {problem}; waiting {QPS_WAITS[attempt]} s")
+                time.sleep(QPS_WAITS[attempt])
+        raise Stop(f"still {problem} after {len(QPS_WAITS)} retries")
 
     def token(self, force=False):
         if force or not self.cltoken or time.time() - self.token_time > TOKEN_LIFETIME:
