@@ -2,8 +2,9 @@
 
 This uses the full-text access token (IEEE_XPLORE_FT_ACCESS_TOKEN in .env), so
 it works from any network, for subscription and open-access papers alike:
-  1. POST /auth/token with the API key and access token -> temporary cltoken,
-     valid for 15 minutes; a new one is requested every TOKEN_LIFETIME seconds
+  1. POST /auth/token with the API key and access token (form-encoded body, as
+     IEEE's Python SDK does) -> temporary cltoken, valid for 15 minutes; a new
+     one is requested every TOKEN_LIFETIME seconds or on "Token Expired"
   2. GET /search/document/<article>/fulltext with the cltoken -> XML <body>
      (sections, paragraphs, tables, captions; no abstract or references)
 
@@ -40,7 +41,7 @@ LOG = ROOT / "data" / "logs" / "fulltext.csv"
 RUN_LOG = ROOT / "data" / "logs" / "fulltext_run.log"
 
 API = "https://ieeexploreapi.ieee.org/api/v1"
-TOKEN_LIFETIME = 12 * 60     # cltoken lasts 15 min; refresh early
+TOKEN_LIFETIME = 10 * 60     # cltoken lasts 15 min; IEEE's SDK refreshes at 10
 QPS_WAIT = 60                # seconds to back off after "Over Qps" or a 5xx
 QPS_RETRIES = 3
 MAX_CONSECUTIVE_FAILURES = 5
@@ -59,16 +60,20 @@ class Client:
         self.token_time = 0.0
         self.last_call = 0.0
 
-    def _call(self, method, url, params):
-        """One API call, paced, budgeted, retried on "Over Qps" or a 5xx error."""
+    def _call(self, method, url, params, data=None):
+        """One API call, paced, budgeted, retried on "Over Qps" or a 5xx error.
+        The API key goes in the form body if there is one, else in the URL."""
+        if data is not None:
+            data = {**data, "apikey": self.key}
+        else:
+            params = {**params, "apikey": self.key}
         for attempt in range(QPS_RETRIES + 1):
             if xplore.remaining_budget() <= 0:
                 raise Stop("24-hour API call budget used up; rerun later")
             wait = self.delay - (time.time() - self.last_call)
             if wait > 0:
                 time.sleep(wait)
-            r = requests.request(method, url, params={**params, "apikey": self.key},
-                                 timeout=(15, 120))
+            r = requests.request(method, url, params=params, data=data, timeout=(15, 120))
             self.last_call = time.time()
             xplore.record_call()
             if "Over Qps" in r.text[:200]:
@@ -84,7 +89,7 @@ class Client:
 
     def token(self, force=False):
         if force or not self.cltoken or time.time() - self.token_time > TOKEN_LIFETIME:
-            r = self._call("POST", f"{API}/auth/token", {"auth-token": self.access_token})
+            r = self._call("POST", f"{API}/auth/token", {}, data={"auth-token": self.access_token})
             try:
                 self.cltoken = r.json()["token"]
             except (ValueError, KeyError):
@@ -98,8 +103,9 @@ class Client:
         for retry in (False, True):
             params = {"format": "xml", "cltoken": self.token(force=retry)}
             r = self._call("GET", url, params)
-            if r.status_code not in (401, 403):
-                break  # a 401/403 may mean the cltoken expired early: refresh once
+            expired = r.status_code in (401, 403) or "Token Expired" in r.text[:200]
+            if not expired:
+                break  # otherwise the cltoken expired early: refresh once and retry
         if r.status_code != 200 or b"<body" not in r.content:
             return "failed", r.status_code, len(r.content), \
                 " ".join(r.text[:150].split())
