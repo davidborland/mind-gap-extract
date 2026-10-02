@@ -13,8 +13,9 @@ budget in xplore.py, so a run stops by itself when the budget is used up;
 rerun the next day to resume. Existing files are skipped.
 
 Stops on: budget exhausted, 5 consecutive failures, or repeated "Over Qps"
-throttling. Every attempt is logged to data/logs/fulltext.csv, and console
-output is copied to data/logs/fulltext_run.log.
+throttling or server errors (each retried 3 times, 60 s apart). Every attempt
+is logged to data/logs/fulltext.csv, and console output is copied to
+data/logs/fulltext_run.log.
 
 Usage:
     python scripts/fetch_fulltext.py --limit 3     # small test
@@ -40,7 +41,7 @@ RUN_LOG = ROOT / "data" / "logs" / "fulltext_run.log"
 
 API = "https://ieeexploreapi.ieee.org/api/v1"
 TOKEN_LIFETIME = 12 * 60     # cltoken lasts 15 min; refresh early
-QPS_WAIT = 60                # seconds to back off after "Over Qps"
+QPS_WAIT = 60                # seconds to back off after "Over Qps" or a 5xx
 QPS_RETRIES = 3
 MAX_CONSECUTIVE_FAILURES = 5
 
@@ -59,7 +60,7 @@ class Client:
         self.last_call = 0.0
 
     def _call(self, method, url, params):
-        """One API call, paced, budgeted, retried on "Over Qps"."""
+        """One API call, paced, budgeted, retried on "Over Qps" or a 5xx error."""
         for attempt in range(QPS_RETRIES + 1):
             if xplore.remaining_budget() <= 0:
                 raise Stop("24-hour API call budget used up; rerun later")
@@ -70,12 +71,16 @@ class Client:
                                  timeout=(15, 120))
             self.last_call = time.time()
             xplore.record_call()
-            if "Over Qps" not in r.text[:200]:
+            if "Over Qps" in r.text[:200]:
+                problem = "throttled (Over Qps)"
+            elif r.status_code in (500, 502, 503, 504):  # seen: 502 HTML page from auth/token
+                problem = f"server error (HTTP {r.status_code})"
+            else:
                 return r
             if attempt < QPS_RETRIES:
-                say(f"  throttled (Over Qps); waiting {QPS_WAIT} s")
+                say(f"  {problem}; waiting {QPS_WAIT} s")
                 time.sleep(QPS_WAIT)
-        raise Stop(f"still throttled after {QPS_RETRIES} retries (HTTP {r.status_code})")
+        raise Stop(f"still {problem} after {QPS_RETRIES} retries")
 
     def token(self, force=False):
         if force or not self.cltoken or time.time() - self.token_time > TOKEN_LIFETIME:
