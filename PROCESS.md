@@ -148,6 +148,7 @@ All scripts are Python 3 (standard library plus `requests`) and live in `scripts
 | `config/volumes.json` | Done | The reviewed list of 26 in-scope volumes and their Xplore filters (committed, so the scope is auditable). |
 | `scripts/fetch_metadata.py` | Done | Step 1b: pages through each volume, filters out front matter, writes `data/index.csv` (papers) and `data/index_all.csv` (all records with status/reason). Rerunning is free once responses are cached. |
 | `scripts/download_pdfs.py` | Done; blocked on network for subscription papers | Step 3 (see above): throttled, resumable PDF download. `--open-access-only` limits it to papers that need no subscription; `--limit N` caps a run (default 300). |
+| `scripts/fetch_fulltext.py` | Written 2026-10-02; replaces PDFs as the full-text route | Full-text XML via the IEEE Full-Text API, using the access token `IEEE_XPLORE_FT_ACCESS_TOKEN` in `.env`. It needs no entitled network. It POSTs `/auth/token` to get a 15-minute `cltoken` (refreshed every 12 min), then GETs `/search/document/<n>/fulltext?format=xml`, which returns the article `<body>` (sections, tables, captions; no abstract or references). Saves `data/fulltext/<n>.xml`, skips papers already fetched, shares the 200/day call budget with `xplore.py`, backs off on "Over Qps", and logs to `data/logs/fulltext.csv` and `fulltext_run.log`. `--limit N` caps a run. Open-access papers go first. |
 
 `data/` (API cache, call log, index, PDFs) is gitignored: it's reproducible from the scripts, and the PDFs are copyrighted.
 

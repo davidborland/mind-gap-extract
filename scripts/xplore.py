@@ -31,12 +31,16 @@ class BudgetExhausted(Exception):
     pass
 
 
-def load_key():
+def load_env(var):
     for line in (ROOT / ".env").read_text().splitlines():
         name, _, value = line.partition("=")
-        if name.strip() == "IEEE_XPLORE_API_KEY":
+        if name.strip() == var:
             return value.strip().strip("'\"")
-    raise RuntimeError("IEEE_XPLORE_API_KEY not found in .env")
+    raise RuntimeError(f"{var} not found in .env")
+
+
+def load_key():
+    return load_env("IEEE_XPLORE_API_KEY")
 
 
 def _load_calls():
@@ -54,7 +58,7 @@ def remaining_budget():
     return DAILY_CAP - len(calls_last_24h())
 
 
-def _record_call():
+def record_call():
     calls = calls_last_24h()
     calls.append(time.time())
     CALL_LOG.parent.mkdir(parents=True, exist_ok=True)
@@ -89,7 +93,7 @@ def search(**params):
 
     resp = requests.get(ENDPOINT, params={**params, "apikey": load_key()}, timeout=60)
     _last_call = time.time()
-    _record_call()  # count the call even if it failed; IEEE likely does too
+    record_call()  # count the call even if it failed; IEEE likely does too
 
     if resp.status_code != 200:
         raise RuntimeError(f"HTTP {resp.status_code}: {resp.text[:500]}")
