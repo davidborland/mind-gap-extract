@@ -16,8 +16,8 @@ Existing valid PDFs are skipped, so rerunning resumes. Every attempt is logged
 to data/logs/downloads.csv.
 
 Usage:
-    python scripts/download_pdfs.py --open-access-only --limit 5
-    python scripts/download_pdfs.py            # needs an entitled network
+    uv run scripts/download_pdfs.py --open-access-only --limit 5
+    uv run scripts/download_pdfs.py            # needs an entitled network
 """
 
 import argparse

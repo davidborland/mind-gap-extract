@@ -21,8 +21,8 @@ is logged to data/logs/fulltext.csv, and console output is copied to
 data/logs/fulltext_run.log.
 
 Usage:
-    python scripts/fetch_fulltext.py --limit 3     # small test
-    python scripts/fetch_fulltext.py               # until the daily budget runs out
+    uv run scripts/fetch_fulltext.py --limit 3     # small test
+    uv run scripts/fetch_fulltext.py               # until the daily budget runs out
 """
 
 import argparse

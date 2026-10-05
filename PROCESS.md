@@ -139,11 +139,11 @@ Any field the paper does not report gets the literal string **NA** — never a b
 
 ## 4. Tooling
 
-All scripts are Python 3 (standard library plus `requests`) and live in `scripts/`.
+All scripts are Python (run so far with 3.12.3; `pyproject.toml` requires ≥3.12) using the standard library plus `requests`, with dependencies managed by uv in `pyproject.toml` and `uv.lock`. They live in `scripts/`. Run them with `uv run scripts/<name>.py`.
 
 | Script / file | Status | Purpose |
 |---|---|---|
-| `scripts/xplore.py` | Done | Shared API client. Reads the key from `.env`, caches every successful response in `data/raw/api/` (keyed by the query parameters, so a query is never paid for twice), logs call times in `data/api_calls.json`, stops at 200 calls per rolling 24 hours, and spaces calls ≥0.5 s apart. Also usable as a one-off probe: `python3 scripts/xplore.py publication_number=9583730`. |
+| `scripts/xplore.py` | Done | Shared API client. Reads the key from `.env`, caches every successful response in `data/raw/api/` (keyed by the query parameters, so a query is never paid for twice), logs call times in `data/api_calls.json`, stops at 200 calls per rolling 24 hours, and spaces calls ≥0.5 s apart. Also usable as a one-off probe: `uv run scripts/xplore.py publication_number=9583730`. |
 | `scripts/discover_volumes.py` | Done | Step 1a: lists candidate volumes per venue/year with hit counts. Only needed again when new volumes appear (e.g. ISMAR 2026). |
 | `config/volumes.json` | Done | The reviewed list of 26 in-scope volumes and their Xplore filters (committed, so the scope is auditable). |
 | `scripts/fetch_metadata.py` | Done | Step 1b: pages through each volume, filters out front matter, writes `data/index.csv` (papers) and `data/index_all.csv` (all records with status/reason). Rerunning is free once responses are cached. |

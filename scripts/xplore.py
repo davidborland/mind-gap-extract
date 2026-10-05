@@ -5,7 +5,7 @@ parameters, so the same query never spends a second API call. Calls are
 counted in data/api_calls.json over a rolling 24-hour window.
 
 Usage as a probe:
-    python scripts/xplore.py publication_title="Mixed and Augmented Reality" publication_year=2021
+    uv run scripts/xplore.py publication_title="Mixed and Augmented Reality" publication_year=2021
 """
 
 import hashlib
