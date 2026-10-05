@@ -9,11 +9,13 @@ it works from any network, for subscription and open-access papers alike:
      (sections, paragraphs, tables, captions; no abstract or references)
 
 Files are saved as data/fulltext/<article_number>.xml only if the response has
-a <body>. Every call (token or document) counts against the shared 24-hour
-budget in xplore.py, so a run stops by itself when the budget is used up;
-rerun the next day to resume. Existing files are skipped.
+a <body>. Every call (token or document) that isn't throttled or a server
+error counts against the shared 24-hour budget in xplore.py, so a run stops by
+itself when the budget is used up; rerun the next day to resume. Existing files
+are skipped.
 
-Stops on: budget exhausted, 5 consecutive failures, or repeated "Over Qps"
+Stops on: budget exhausted, an "Over Rate" (daily quota) response from IEEE,
+5 consecutive failures, or repeated "Over Qps"
 throttling or server errors (retried after 1, 2, 4 and 8 minutes). Every attempt
 is logged to data/logs/fulltext.csv, and console output is copied to
 data/logs/fulltext_run.log.
@@ -76,12 +78,16 @@ class Client:
                 time.sleep(wait)
             r = requests.request(method, url, params=params, data=data, timeout=(15, 120))
             self.last_call = time.time()
-            xplore.record_call()
+            # Only calls that got through count against the budget; throttled and
+            # 5xx calls presumably don't count toward IEEE's daily quota.
             if "Over Qps" in r.text[:200]:
                 problem = "throttled (Over Qps)"
             elif r.status_code in (500, 502, 503, 504):  # seen: 502 HTML page from auth/token
                 problem = f"server error (HTTP {r.status_code})"
+            elif "Over Rate" in r.text[:200]:  # e.g. 403 "Developer Over Rate" (unverified)
+                raise Stop(f"IEEE daily quota reached: HTTP {r.status_code} {r.text[:200]!r}")
             else:
+                xplore.record_call()
                 return r
             if attempt < len(QPS_WAITS):
                 say(f"  {problem}; waiting {QPS_WAITS[attempt]} s")
