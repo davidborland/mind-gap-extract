@@ -22,7 +22,7 @@ CACHE_DIR = DATA / "raw" / "api"
 CALL_LOG = DATA / "api_calls.json"
 
 ENDPOINT = "https://ieeexploreapi.ieee.org/api/v1/search/articles"
-DAILY_CAP = 200          # key allows 210/day; keep a margin
+DAILY_CAP = 990          # key allows 1000/day; keep a margin
 MIN_INTERVAL = 0.5       # seconds between calls; key allows 10/s
 MAX_RECORDS = 25         # per-call maximum for this key
 
