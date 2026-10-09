@@ -4,3 +4,4 @@ __pycache__/
 ft-access-token-instructions.txt
 .venv/
 config/volumes.json
+*.tgz
