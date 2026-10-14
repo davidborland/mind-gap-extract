@@ -9,17 +9,23 @@ matter to exclude, or a borderline case for review, and writes:
 
 Responses are cached by xplore.py, so rerunning after hitting the daily cap
 resumes where it left off without re-spending calls.
+
+For the previous paper's VR 2015-2019 set, a separate volume list and output
+name keep it apart from the 2020+ index:
+
+    uv run scripts/fetch_metadata.py --volumes config/volumes_2015-2019.json --out index_2015-2019
+    (writes data/index_2015-2019.csv and data/index_2015-2019_all.csv)
 """
 
+import argparse
 import csv
 import json
 import re
+from pathlib import Path
 
 import xplore
 
 VOLUMES = xplore.ROOT / "config" / "volumes.json"
-OUT_ALL = xplore.DATA / "index_all.csv"
-OUT = xplore.DATA / "index.csv"
 
 # Titles of non-paper items that appear in proceedings and special issues.
 FRONT_MATTER = re.compile(
@@ -117,7 +123,14 @@ def write(path, rows):
 
 
 def main():
-    volumes = json.loads(VOLUMES.read_text())["volumes"]
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--volumes", type=Path, default=VOLUMES)
+    ap.add_argument("--out", default="index", help="output name under data/ (default: index)")
+    args = ap.parse_args()
+    out = xplore.DATA / f"{args.out}.csv"
+    out_all = xplore.DATA / f"{args.out}_all.csv"
+
+    volumes = json.loads(args.volumes.read_text())["volumes"]
     rows, incomplete = [], []
     for vol in volumes:
         label = f"{vol['year']} {vol['venue']} {vol['type']}"
@@ -133,11 +146,11 @@ def main():
               f"excluded {counts['excluded']:3d}  review {counts['review']:3d}")
 
     rows.sort(key=lambda r: (r["year"], r["venue"], r["type"], int(r["article_number"])))
-    write(OUT_ALL, rows)
-    write(OUT, [r for r in rows if r["status"] == "paper"])
+    write(out_all, rows)
+    write(out, [r for r in rows if r["status"] == "paper"])
 
-    print(f"\n{sum(r['status'] == 'paper' for r in rows)} papers -> {OUT.relative_to(xplore.ROOT)}")
-    print(f"{len(rows)} records (all statuses) -> {OUT_ALL.relative_to(xplore.ROOT)}")
+    print(f"\n{sum(r['status'] == 'paper' for r in rows)} papers -> {out.relative_to(xplore.ROOT)}")
+    print(f"{len(rows)} records (all statuses) -> {out_all.relative_to(xplore.ROOT)}")
     if incomplete:
         print(f"\nBudget exhausted; {len(incomplete)} volume(s) not fetched: "
               + ", ".join(incomplete) + "\nRerun after the 24-hour window frees up calls.")

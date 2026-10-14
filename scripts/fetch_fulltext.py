@@ -16,13 +16,14 @@ are skipped.
 
 Stops on: budget exhausted, an "Over Rate" (daily quota) response from IEEE,
 5 consecutive failures, or repeated "Over Qps"
-throttling or server errors (retried after 1, 2, 4 and 8 minutes). Every attempt
+throttling, server errors or timeouts (retried after 1, 2, 4 and 8 minutes). Every attempt
 is logged to data/logs/fulltext.csv, and console output is copied to
 data/logs/fulltext_run.log.
 
 Usage:
     uv run scripts/fetch_fulltext.py --limit 3     # small test
     uv run scripts/fetch_fulltext.py               # until the daily budget runs out
+    uv run scripts/fetch_fulltext.py --index data/index_2015-2019_test.csv
 """
 
 import argparse
@@ -64,7 +65,7 @@ class Client:
         self.last_call = 0.0
 
     def _call(self, method, url, params, data=None):
-        """One API call, paced, budgeted, retried on "Over Qps" or a 5xx error.
+        """One API call, paced, budgeted, retried on "Over Qps", a 5xx error or a timeout.
         The API key goes in the form body if there is one, else in the URL."""
         if data is not None:
             data = {**data, "apikey": self.key}
@@ -76,11 +77,22 @@ class Client:
             wait = self.delay - (time.time() - self.last_call)
             if wait > 0:
                 time.sleep(wait)
-            r = requests.request(method, url, params=params, data=data, timeout=(15, 120))
-            self.last_call = time.time()
+            try:
+                r = requests.request(method, url, params=params, data=data, timeout=(15, 120))
+            except (requests.Timeout, requests.ConnectionError) as e:
+                # Runs of ReadTimeouts came minutes apart on 2026-10-13; back off
+                # instead of counting each as a paper failure. A timed-out request
+                # may have reached IEEE, so it is counted against the budget.
+                self.last_call = time.time()
+                xplore.record_call()
+                r, problem = None, f"network error ({type(e).__name__})"
+            else:
+                self.last_call = time.time()
             # Only calls that got through count against the budget; throttled and
             # 5xx calls presumably don't count toward IEEE's daily quota.
-            if "Over Qps" in r.text[:200]:
+            if r is None:
+                pass
+            elif "Over Qps" in r.text[:200]:
                 problem = "throttled (Over Qps)"
             elif r.status_code in (500, 502, 503, 504):  # seen: 502 HTML page from auth/token
                 problem = f"server error (HTTP {r.status_code})"
@@ -158,13 +170,16 @@ def main():
     # At 2 s apart, IEEE answered "Over Qps" on 2 of 6 calls (2026-10-02).
     ap.add_argument("--delay", type=float, default=10.0,
                     help="minimum seconds between API calls (default 10)")
+    ap.add_argument("--index", type=Path, default=INDEX,
+                    help="CSV of papers to fetch, with article_number and access_type "
+                         "columns (default data/index.csv)")
     args = ap.parse_args()
 
     RUN_LOG.parent.mkdir(parents=True, exist_ok=True)
     _run_log = open(RUN_LOG, "a")
     say(f"=== {datetime.now().isoformat(timespec='seconds')} fetch_fulltext {' '.join(sys.argv[1:])}")
 
-    papers = list(csv.DictReader(open(INDEX)))
+    papers = list(csv.DictReader(open(args.index)))
     todo = [p for p in papers if not has_body(XML_DIR / f"{p['article_number']}.xml")]
     # Open-access papers first: whether the Full-Text API serves them (CC BY
     # records say "IEEE is not the copyright holder") is the untested part.

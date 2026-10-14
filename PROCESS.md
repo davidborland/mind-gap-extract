@@ -89,27 +89,165 @@ To be piloted on the 109 open-access PDFs already downloaded, then run on the re
 3. **Extract the details** (`scripts/extract_demographics.py`): Claude reads each paper's passages and fills in the §3 fields as structured JSON. Every value must come with the **exact quote** it came from.
 4. **Automatic checks** on every result; anything failing goes to a review list rather than into the dataset:
    - each quote appears word-for-word in the paper's text (catches invented values)
-   - female + male + other = total
+   - female + male + the non-binary, prefer-not-to-say, not-reported and other counts = total
    - minimum age ≤ mean ≤ maximum, and ages are plausible
    - a stated total matches the per-study numbers
-5. **Pilot and quality check**: the user hand-codes ~20 open-access papers as a reference set, and the extraction instructions are adjusted until they agree. Then the 10% second-reader check (step 6 above) on the full set.
+5. **Pilot and quality check**: the user hand-codes ~20 open-access papers as a reference set, and the extraction instructions are adjusted until they agree. Then the 10% second-reader check (step 6 above) on the full set. *A cheaper alternative is under review; see "Proposed validation design" below.*
 
 **Open decision: how the extraction step runs.**
 - *(Recommended)* A script calling the Claude API: reproducible and rerunnable, with every result logged next to its quotes, which suits a methods section. Needs an Anthropic API key in `.env` and costs per paper; check current pricing before estimating.
 - Subagents in a Claude Code session: no key or separate billing, but harder to rerun identically and slower for ~2,000 papers.
 
-**Open rules, to settle before the pilot** (proposed defaults in italics). These change the numbers, so they belong in the methods:
-1. **Multiple studies in one paper**: *one row per study in a second table, plus a paper-level total that adds up studies only when the paper says the participants were different people; otherwise flagged.* This supersedes "aggregate across studies" in the extraction rules below.
-2. **Recruited vs. analyzed participants**: *record the analyzed count, with exclusions in the notes* (demographics are often reported for the recruited group; the note makes that visible).
-3. **Pilot, expert-only and crowdsourced studies**: *count all as user studies, with a column recording which kind, so they can be filtered later.*
-4. **Gender vs. sex wording**: *record the paper's own term (gender / sex / unclear) in a column*, per the terminology rule below.
+**Counting rules** *(decided 2026-10-13; details in §3)*. These change the numbers, so they belong in the methods:
+1. **Multiple studies in one paper**: one row per study, with a Study number column. A separate study means **new participants**; one group doing "two experiments" is one study with two blocks. Each paper with a user study also gets a **Study 0** row: the paper-level total of unique participants it reports.
+2. **Recruited vs. analyzed participants**: record the analyzed count where possible, with exclusions in the notes, and a Count basis column (recruited / analyzed / unknown) saying which one the row holds.
+3. **Pilot, expert-only and crowdsourced studies**: recorded, with a Study type column so they can be filtered. Pilots are not counted as studies in the analysis (the old coding didn't count them).
+4. **Gender vs. sex wording**: record the paper's own term (gender / sex / unclear) in a column, per the terminology rule below.
+
+### Proposed validation design *(proposed 2026-10-12; for review)*
+
+A cheaper alternative to the 10% second-reader check in item 5 above. A 10% check means hand-coding ~200 papers. The design below should take the equivalent of ~50–80 papers' worth of effort and give a finer-grained result: accuracy per field, separate precision and recall, and a measured error rate among values the models agreed on.
+
+Since all 1,980 papers now have full-text XML, the ~20 tuning papers no longer need to be open-access. A sample stratified by venue and year represents the whole set better. Test samples are drawn so they don't include any tuning papers.
+
+**Option A: agreement across different LLMs.** Run the extraction twice, either with models from different families (e.g., Claude plus GPT or Gemini) or with one model and two differently worded prompts. Each field then sorts into one of two groups:
+- *Agree*: probably right, but not certainly. Models make correlated mistakes, such as misreading the same ambiguous sentence or missing the same second study.
+- *Disagree*: all go to human review. This is error **correction**, not error **measurement**.
+
+To turn this into an accuracy figure, review every disagreement plus a small random sample of agreements:
+overall error = P(agree) × error rate among agreements + P(disagree) × error rate among disagreements.
+The agreement sample is what keeps the estimate honest. Inter-model agreement (kappa) is also worth reporting in its own right. The costs are a second extraction run and reviewing the disagreements; that queue's size is unknown until the pilot runs.
+
+**Option B: sample fields, not papers.** Because every extracted value comes with its exact quote, checking a single field is quick: read the quote and confirm the value. That takes ~20–30 seconds, versus several minutes to code a whole paper, so (paper, field) pairs can be sampled across many papers. The catch is that quote checks catch **wrong values** but not **missed values**. Examples are a second study that was never extracted, or an "other/non-binary" count reported as absent. Measuring misses means reading the paper's participant section. So the check splits in two:
+- *Precision* (is each extracted value correct?): many cheap, quote-based checks.
+- *Recall* (did it miss anything?): fewer, but each reads the full participant passage.
+
+`Has user study = No` needs its own small sample, because a wrongly screened-out paper has no quotes to check.
+
+**Option C: stop early as accuracy converges.** Annotate in random order and track each field's accuracy with a confidence interval. Stop once the interval is narrow enough. Reference points:
+- *0 errors in n checks*: the 95% upper bound on the error rate is ~3/n (the "rule of three"). 60 clean checks put error at ≤5%, and 100 put it at ≤3%.
+- *~97% accuracy*: ±5 points needs ~45 checks, and ±3 points needs ~125.
+
+So if extraction turns out accurate, a field can stop at 40–60 checks. The stopping rule must be written down before starting, e.g., "minimum 30, stop when the 95% Wilson half-width ≤ 5 points, maximum 100." Deciding when to stop by watching the results as they come in biases the estimate.
+
+**Other options.**
+- *Oversample the hard cases with weights.* Errors will cluster in multi-study papers, recruited-vs-analyzed mismatches and unusual gender wording. Oversampling those strata and reweighting gives the population estimate while finding more errors per hour of review.
+- *Blind vs. assisted review.* Reviewing with the LLM's answer visible is faster but anchors the reviewer toward agreeing. The ~20 blind tuning papers partly cover this. A further ~10–15 blind papers in the test set would show whether assisted review inflates agreement.
+- *A second human on a small subset.* If reviewers ask about human–human reliability, ~20 papers coded by a colleague gives a kappa to compare against.
+
+**Recommended combined design.**
+1. *Tuning*: ~20 papers, hand-coded blind, as in item 5 above.
+2. *Full run with two model families*, plus the automatic checks in item 4. A human reviews the disagreements and check failures. This fixes errors but isn't counted toward accuracy.
+3. *Accuracy audit*, with the stopping rule written down beforehand:
+   - field-level quote checks on a random sample, stratified by agree/disagree, with the stopping rule above (expect ~40–80 checks per key field)
+   - ~30 papers read in full for recall
+   - ~30 "No user study" papers skimmed
+4. *Report* human–LLM accuracy with confidence intervals for each field, inter-model kappa, and the agree/disagree breakdown.
+
+**To decide:** whether to adopt this in place of the 10% second-reader check; which second model family (or second prompt) to use; the stopping rule's thresholds; and which fields count as "key" for the per-field audit.
+
+### Previous dataset as a test set *(proposed 2026-10-13; for review)*
+
+`data/IEEEVR2015-2019.xlsx` holds the hand-coded data from the previous paper, which this one follows up. It covers IEEE VR only, 2015–2019: 356 papers in 471 rows, already one row per study with a study number. 70 papers have no user study, and 80 have more than one study (53 with 2, 19 with 3, 8 with 4). By type there are 267 conference, 108 TVCG and 31 "invited" papers (TVCG regular-issue papers presented at VR). *Decided 2026-10-13: the invited papers are dropped*, matching the 2020+ scope, which leaves 325 papers (the per-type study counts above still include them).
+
+The proposal is to fetch these papers' full text, run the new pipeline on them, and compare the output with the old coding. That replaces most of the hand-coding in the validation design above. About 300 papers would be held out for testing, which also measures missed studies (the multi-study papers), the user-study screen (the no-study papers) and missed values.
+
+Caveats:
+- **The old labels aren't ground truth.** Disagreements are settled by hand, and some will turn out to be errors in the old coding. Results are reported as agreement with adjudication; as a side benefit, this measures the old dataset's error rate.
+- **The counting rules have to match** the old conventions, or the comparison mostly turns up rule differences. Known old conventions (user, 2026-10-13): counts are unknown but probably recruited; a separate study meant new participants; pilots weren't counted; `males`/`females` covered binary categories only, and the only other category in the whole dataset was non-binary. The new Count basis column will show how often recruited and analyzed differ.
+- **Study rows have to line up.** Old rows have only a study number. A different number of rows for a paper flags a disagreement about how the paper divides into studies.
+- **Older papers may report differently,** and the old data has no columns for gender categories beyond male and female (non-binary was the only other category the old papers reported). A small audit on 2020+ data is still needed, aimed mostly at the new gender columns.
+- **Tuning and test papers must stay separate.** Split by paper, stratified by year, type and single vs. multi-study.
+
+Data notes:
+- Missing values use three codes, `-`, `?` and `NA`, which all mean NA. Papers with no study have total participants `0`, which is also read as NA. The new extraction uses only `NA`.
+- 6 rows have males + females ≠ total. Left for the comparison to sort out.
+- Titles have been altered (underscores for commas, doubled or missing spaces, dropped punctuation), so matching them to Xplore needs fuzzy matching.
+
+Schema mapping:
+- **Dropped:** `first.author.gender`, `author.male`, `author.female`, `session` and `category`. Keywords replace session and category (decided 2026-10-13), and are collected for the 2015–2019 papers too.
+- **Mapped:** `type` (`conference` → Conference, `tvcg` → Journal; `invited` rows dropped), and `human.subjects.study` → Has user study. Age and count fields map directly.
+- **New-schema fields with no old counterpart** (can't be compared): Last author, DOI, keywords, the non-male/female gender columns, Other descriptors, Median age, Study 0 rows, Study type, Count basis, Gender term.
+
+Fetching cost:
+- **Metadata:** ~40–50 API calls to discover and list the VR 2015–2019 volumes (5 conference proceedings, 5 TVCG issues).
+- **Full text:** ~325 calls, within one day's cap (invited papers dropped, so no title searches needed).
+
+### Open questions *(compiled 2026-10-13; answers from the user 2026-10-13 in italics)*
+
+**A. Previous dataset (2015–2019)**
+1. What does each missing-value code mean: `-`, `?` and `NA`? *All mean NA. The new extraction uses only NA.*
+2. Should the 31 "invited" papers be kept or dropped? The 2020+ scope excludes this kind of paper. *Dropped.*
+3. Should the re-extracted 2015–2019 data become part of the follow-up's dataset, or only serve as a test set? *Leaning toward including it; to discuss further.*
+4. What conventions did the old coding use? *Answered:*
+   - recruited or analyzed counts: *unknown, but probably recruited. Analyzed is preferred; the new extraction adds a Count basis column (recruited / analyzed / unknown).*
+   - what counted as a separate study: *new participants.*
+   - whether pilot studies were counted: *no.*
+   - whether `males`/`females` covered only binary categories: *yes. The only other category reported in the whole dataset was non-binary.*
+   - why papers with no study have total `0`: *treat it as NA.*
+5. Should the 6 rows where males + females ≠ total be investigated now, or left for the comparison to sort out? *Left for the comparison.*
+6. Was the old dataset complete for VR 2015–2019? This can be checked against Xplore's paper counts (2017 conference, with 23 papers, looks low). *To check. This happens naturally when the VR 2015–2019 metadata is fetched.* Checked 2026-10-13 against `data/index_2015-2019.csv` (fetched with `config/volumes_2015-2019.json`): all 325 old non-invited papers were found on Xplore. Journal counts match exactly every year. The conference volumes hold more because they include short papers (2015) and workshop papers (2019, pages ~1400+), which the old coding left out. That's consistent with a full-papers-only scope, not missing data. Six conference papers weren't in the old data; a collaborator checked them on 2026-10-13. Only one was a real omission: 2019 article 8798247, "Immersive Spatial Audio Reproduction…", which is **added** (326 papers). The three 2015 papers (7223465–7223467) are workshop papers, and the two 2018 ones (8446227, 8446583) are 2-page posters with bad page data on Xplore. All five stay out. Two 2019 records added to the volume later (9044162, 9044164) are probably workshop papers. One more 2018 record passes the automatic filters: 8446264, "The 2018 VGTC Virtual Reality Career Award" (front matter; Xplore `access_type` EPHEMERA, but it has an author and a normal page range). It also stays out. So `index_2015-2019.csv` (404 records) is only an intermediate step, and `index_2015-2019_test.csv` (326) is the 2015–2019 paper list. 8798247 has no old coding to compare against. It has no formal study, only "verbal feedback on four test scenes from two experienced and two untrained subjects", which raises the edge case below.
+7. Should the old `category` field (14 topics) be kept for comparing topics across the two periods, and the 2020+ papers mapped onto it? Or drop topics and use keywords only? *Keywords only, collected for the new analysis.*
+8. How many papers for tuning and how many held out for testing? Suggested: ~30–40 tuning papers (oversampling multi-study ones) and ~300 held out. *To discuss further.*
+
+**B. Counting rules** (these change the numbers)
+
+9. Recruited or analyzed participants? *Analyzed, with exclusions in notes, plus the Count basis column.*
+10. How should pilot, expert-only and crowdsourced studies be handled? *Add a Study type column.* (Pilots are recorded but, as in the old coding, not counted as studies in the analysis.)
+11. Gender vs. sex wording? *A column recording the paper's own term (gender / sex / unclear).*
+12. Should there be a paper-level participant total, and if so, how are studies with overlapping participants handled? *Yes: a Study 0 row holding the total number of unique participants the paper reports.*
+13. When demographics are reported only for all studies combined, should they be copied onto each study's row (the current draft rule), or left as **NA** with a flag? *NA with a flag.*
+14. What counts as a separate study? For example, one participant group doing two experiments, or a study a paper reuses from earlier work. *A separate study has new participants. One group doing "two experiments" is one experiment with two blocks.* Still open: a study reused from earlier work. Also open: does informal feedback count as a user study? For example, 8798247 (VR 2019) reports only "verbal feedback on four test scenes from two experienced and two untrained subjects", with no demographics. Options: `Has user study: Yes` with Study type `Informal` and N = 4, or `No`.
+
+**Follow-ups raised by these answers** (proposed; to confirm):
+- **Combined demographics go on Study 0.** When a paper reports demographics only for all studies combined, they go on the Study 0 row, and the per-study rows get NA with a flag. This follows from 12 and 13.
+- **Pilots and Study 0.** Study 0 excludes pilot participants, to match the old coding. Otherwise a paper's total would mix counted and uncounted studies.
+- **Single-study papers get a Study 0 row too**, duplicating Study 1, so every paper with a study has a total on the same row number.
+- **When Count basis is "unknown".** Many papers give one N and never mention exclusions. Proposed: record that as unknown rather than assuming analyzed, so the column measures how often papers make this clear.
+
+**C. Schema**
+
+15. The rules above imply columns the schema doesn't have yet: study kind, gender/sex term, notes and a review flag. Should they be added? *Yes, as needed; added to §3 below, along with Count basis.*
+16. Keywords: author terms, IEEE terms, or both? Both are already in the cached metadata (`author_terms`, `ieee_terms`). *Both, as two columns.*
+17. Should Article number stay as the paper identifier? DOI is the alternative. *Both, as two columns.*
+18. How should Other participants be split? It currently adds non-binary, undisclosed and prefer-not-to-say together. Should those be counted separately? *A separate column for each, plus a catch-all for anything that doesn't match.* Added to §3 as Non-binary, Prefer not to say, Gender not reported and Other gender, with Other descriptors keeping the catch-all's labels verbatim. The old dataset has only non-binary, so only that column can be compared.
+19. Should age values stay exactly as reported, or be converted to a single format (e.g., a median reported where a mean is expected, or only a range)? *To discuss further.* The user asked how a median or a range could become a mean. It can't, exactly; it can only be estimated. Meta-analyses use published formulas for this: Hozo et al. (2005) and Wan et al. (2014) estimate mean and SD from the median plus range or interquartile range, assuming a roughly symmetric distribution. Ages of convenience samples are usually right-skewed (many students, a few older participants), so these estimates run low. Proposed: extraction stores exactly what's reported, with a Median age column so a median never lands in Mean age. Any estimate is made later in the analysis, labelled as estimated, with a sensitivity check that leaves those papers out.
+
+**D. Extraction pipeline**
+
+20. Should extraction run as a script calling the Claude API (recommended) or through subagents? Running it through the API needs an API key in `.env`.
+21. Which model(s), and what budget? Current pricing still needs checking.
+22. Should the abstract be passed to the model too? The XML has no abstract, but the cached metadata does, and abstracts often state N.
+23. Should the step-by-step plan above (steps 1–2) be rewritten to work from `data/fulltext/*.xml`? It still describes converting PDFs with PyMuPDF.
+24. Should the keyword search that narrows each paper to its participant passages stay, or should the model read the whole paper?
+
+**E. Validation**
+
+25. Adopt the proposed validation design in place of the 10% second-reader check?
+26. What second model family or second prompt for the agreement check?
+27. What stopping-rule thresholds? Suggested: minimum 30 checks, stop when the 95% interval is within ±5 points, maximum 100.
+28. Which fields count as key for the per-field audit?
+29. Should part of the test set be reviewed blind, without the model's answer visible? If so, how many papers?
+30. Will a second human code ~20 papers so human–human agreement can be reported?
+31. How big should the 2020+ audit be? It's needed for the new gender columns and for differences in reporting since 2019.
+
+**F. Scope and housekeeping**
+
+32. When ISMAR 2026 appears on Xplore, should it be added (rerun discovery)? Or freeze the dataset at a cutoff date?
+33. Should the untracked dotfiles in the repo root (`.bashrc`, `.profile`, `.claude/` etc.) be deleted or gitignored?
+34. Should the full-text API's coverage of 2015-era papers be confirmed with a small test fetch before committing to the plan?
+35. `data/` is gitignored, so `data/IEEEVR2015-2019.xlsx` isn't in git or in the 2026-10-09 backup. Should it be backed up separately?
+
+Questions 1–2, 4–5, 7 and 9–18 were answered on 2026-10-13. Still open from that batch: 3 (include old data), 6 (completeness check), 8 (tuning/test split), the reused-study case in 14, 19 (age formats), and the follow-ups above.
 
 ## 3. Data Schema
 
-One row per paper.
+One row per study, so a paper with several studies has several rows, plus a **Study 0** row per paper holding the paper-level total of unique participants (excluding pilots; see the open follow-ups in §2). The paper-level fields (Article number through Total authors) repeat on each of its rows. A paper with no user study gets a single row, with `Has user study: No` and Study number **NA**. Article number plus Study number identifies a row.
 
 | Field | Notes |
 |---|---|
+| Article number | IEEE Xplore article number (`article_number` in `data/index.csv`); identifies the paper and links rows from the same paper |
+| DOI | From the cached metadata |
 | Year | Publication year (conference presentation year for journal-track papers, to keep it aligned with the venue-year the paper "belongs to") |
 | Venue | `IEEE VR` or `ISMAR` — which conference the paper belongs to, regardless of track |
 | Type | `Conference` or `Journal` |
@@ -117,23 +255,37 @@ One row per paper.
 | First author | As listed on the paper |
 | Last author | As listed on the paper (senior/PI author by convention, if distinguishable from "second author" in a 2-author paper) |
 | Total authors | Integer count |
+| Author keywords | `author_terms` from the cached metadata, semicolon-separated |
+| IEEE terms | `ieee_terms` from the cached metadata, semicolon-separated |
 | Has user study | `Yes` / `No` — whether the paper involved human participants |
-| Total participants | Integer; **NA** if no study or count not reported |
+| Study number | 0 for the paper-level total row; 1, 2, … in the order the paper presents its studies; **NA** for a paper with no user study |
+| Study label | The paper's own name for the study, copied verbatim (e.g., "Study 2", "Experiment 1", "Pilot study"); **NA** if the paper doesn't name it, for Study 0, or if there is no user study |
+| Study type | e.g., `Main`, `Pilot`, `Expert`, `Crowdsourced` (exact categories to be fixed in the pilot); **NA** for Study 0 or no study |
+| Total participants | Integer, for this study (unique participants for the whole paper on Study 0); **NA** if no study or count not reported |
+| Count basis | `Recruited`, `Analyzed` or `Unknown`: which count Total participants holds |
 | Female participants | As reported by authors' own terminology; **NA** if not reported |
 | Male participants | As reported by authors' own terminology; **NA** if not reported |
-| Other participants | Non-binary / other / undisclosed / prefer-not-to-say, summed; **NA** if not reported |
-| Other descriptors | Free text, e.g., "non-binary," "prefer not to say," "other," "genderqueer" — copy authors' own labels verbatim; **NA** if no such category reported |
+| Non-binary participants | **NA** if not reported |
+| Prefer not to say | Participants who declined to give gender/sex; **NA** if not reported |
+| Gender not reported | Participants the paper says gave no answer or whose gender is unknown (as distinct from declining); **NA** if not reported |
+| Other gender | Catch-all for any other category (e.g., "other," "genderqueer"); **NA** if not reported |
+| Other descriptors | The authors' own labels for the Other gender count, copied verbatim; **NA** if none |
 | Min age | As reported; **NA** if not reported |
 | Max age | As reported; **NA** if not reported |
-| Mean age | As reported; **NA** if not reported |
+| Mean age | As reported; **NA** if not reported (never a median) |
+| Median age | As reported; **NA** if not reported |
 | Age SD | As reported; **NA** if not reported |
+| Gender term | The paper's own wording: `gender`, `sex` or `unclear`; **NA** if no gender/sex data reported |
+| Notes | Free text: exclusions, derivations (e.g., counts computed from percentages), anything unusual |
+| Review flag | `Yes` when the row needs human review (e.g., demographics reported only for all studies combined, failed automatic checks); otherwise `No` |
 
-Any field the paper does not report gets the literal string **NA** — never a blank cell and never `0` (a blank/0 is ambiguous between "not reported" and "reported as zero"). This applies to every field above except Year, Venue, Type, Title, First/Last author, and Total authors, which should always be extractable from the paper itself.
+Any field the paper does not report gets the literal string **NA** — never a blank cell and never `0` (a blank/0 is ambiguous between "not reported" and "reported as zero"). This applies to every field above except Article number, Year, Venue, Type, Title, First/Last author, and Total authors, which should always be extractable from the paper itself. The participant and age fields describe the row's own study, not the whole paper.
 
 ### Extraction rules / edge cases
 - **Use authors' own terminology** for gender categories rather than normalizing; keep a separate "descriptors" field to preserve nuance (some papers use "sex," some "gender," some conflate the two — note this ambiguity in a comments column if needed).
 - **Missing data stays missing** — do not infer or estimate; mark it **NA** rather than guessing. If a paper reports total N and % female but not raw counts, compute raw counts and note the derivation; if age is reported only as a range (no mean/SD) or only as mean (no range), fill in only what's given and mark the rest **NA**.
-- **Multiple studies in one paper**: record aggregated totals across all studies by default, and consider a `notes` column flagging multi-study papers for later disaggregation if needed.
+- **Multiple studies in one paper**: one row per study, numbered in the order the paper presents them, with the paper's own name for each study in Study label (so an unnumbered pilot before "Study 1" is Study number 1, Study label "Pilot study", Study type `Pilot`). A separate study has **new participants**: one group doing "two experiments" is one study with two blocks, even if the paper calls them Experiment 1 and 2. Study 0 holds the paper's total of unique participants; don't add studies together to get it unless the paper says the participants were different people. If demographics are reported only for all studies combined, put them on Study 0, leave the study rows' demographics **NA** and flag them for review.
+- **Recruited vs. analyzed**: record the analyzed count when the paper gives it, note exclusions in Notes, and set Count basis to say which count the row holds.
 - **Within-subjects/between-subjects or multiple conditions**: participant count = unique individuals, not condition-participation instances.
 - **No demographics reported at all** but a study clearly involved human participants: still mark `Has user study: Yes`, fill total N if available, mark gender/age fields **NA** rather than `0`.
 
@@ -148,13 +300,14 @@ All scripts are Python (run so far with 3.12.3; `pyproject.toml` requires ≥3.1
 | `config/volumes.json` | Done | The reviewed list of 26 in-scope volumes and their Xplore filters (gitignored; the volumes are summarized in §2). |
 | `scripts/fetch_metadata.py` | Done | Step 1b: pages through each volume, filters out front matter, writes `data/index.csv` (papers) and `data/index_all.csv` (all records with status/reason). Rerunning is free once responses are cached. |
 | `scripts/download_pdfs.py` | Done; blocked on network for subscription papers | Step 3 (see above): throttled, resumable PDF download. `--open-access-only` limits it to papers that need no subscription; `--limit N` caps a run (default 300). |
-| `scripts/fetch_fulltext.py` | Written 2026-10-02; replaces PDFs as the full-text route | Full-text XML via the IEEE Full-Text API, using the access token `IEEE_XPLORE_FT_ACCESS_TOKEN` in `.env`. It needs no entitled network. It POSTs `/auth/token` (form body, as in IEEE's Python SDK) to get a 15-minute `cltoken` (refreshed every 10 min or on "Token Expired"), then GETs `/search/document/<n>/fulltext?format=xml`, which returns the article `<body>` (sections, tables, captions; no abstract or references). Saves `data/fulltext/<n>.xml`, skips papers already fetched, shares the 200/day call budget with `xplore.py`, backs off and retries (1, 2, 4, 8 min) on "Over Qps" and 5xx errors, and logs to `data/logs/fulltext.csv` and `fulltext_run.log`. `--limit N` caps a run. Open-access papers go first. |
+| `scripts/fetch_fulltext.py` | Written 2026-10-02; replaces PDFs as the full-text route | Full-text XML via the IEEE Full-Text API, using the access token `IEEE_XPLORE_FT_ACCESS_TOKEN` in `.env`. It needs no entitled network. It POSTs `/auth/token` (form body, as in IEEE's Python SDK) to get a 15-minute `cltoken` (refreshed every 10 min or on "Token Expired"), then GETs `/search/document/<n>/fulltext?format=xml`, which returns the article `<body>` (sections, tables, captions; no abstract or references). Saves `data/fulltext/<n>.xml`, skips papers already fetched, shares the 200/day call budget with `xplore.py`, backs off and retries (1, 2, 4, 8 min) on "Over Qps" and 5xx errors, and logs to `data/logs/fulltext.csv` and `fulltext_run.log`. `--limit N` caps a run. Open-access papers go first. `--index` picks a different paper list (e.g., the 2015–2019 test set). |
+| `scripts/match_previous.py` | Done 2026-10-13 | Matches the previous paper's hand-coded VR 2015–2019 papers (`data/IEEEVR2015-2019.xlsx`, invited papers dropped) to the Xplore records from `fetch_metadata.py --volumes config/volumes_2015-2019.json --out index_2015-2019`, matching titles fuzzily and one-to-one, and adds the confirmed omission 8798247. Writes `data/index_2015-2019_test.csv` (326 papers, with old title, old type and match score). This, not `index_2015-2019.csv`, is the 2015–2019 paper list (see Q6). Full text for all 326 was fetched by 2026-10-14. |
 
 `data/` (API cache, call log, index, PDFs) is gitignored: it's reproducible from the scripts, and the PDFs are copyrighted.
 
 Later stages:
 - PDF text extraction (e.g., `pdftotext`, or a PDF-parsing library) to pull candidate "Participants" sections automatically as a first pass, followed by manual/LLM-assisted verification given how inconsistently this information is reported.
-- Store the working dataset as CSV/spreadsheet (one row per paper) for downstream analysis (e.g., trends over time in gender balance, reporting completeness).
+- Store the working dataset as CSV/spreadsheet (one row per study; see §3) for downstream analysis (e.g., trends over time in gender balance, reporting completeness).
 
 ## 5. Known Limitations
 
